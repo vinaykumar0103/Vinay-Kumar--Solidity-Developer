@@ -1,96 +1,126 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Web3 from 'web3';
-import AirdropToken from './AirdropToken.json';
+import AirdropToken from './AirdropToken.json'; // Importing the JSON file
 
-function Page() {
-    const [web3, setWeb3] = useState<Web3 | null>(null);
-    const [contract, setContract] = useState<any | null>(null);
-    const [account, setAccount] = useState<string>('');
-    const [recipients, setRecipients] = useState<string>('');
-    const [amount, setAmount] = useState<string>('');
-    const [connected, setConnected] = useState<boolean>(false); // New state variable
+// Declare global interface for Window object
+declare global {
+    interface Window {
+        ethereum?: any;
+    }
+}
 
-    // Function to connect to MetaMask and initialize contract
+// Define Component
+const App = () => {
+    // State variables
+    const [web3, setWeb3] = useState<Web3 | null>(null); // Web3 instance or null
+    const [accounts, setAccounts] = useState<string[]>([]); // Array of account addresses
+    const [recipientAddress, setRecipientAddress] = useState<string>(''); // Recipient address for token transfer
+    const [amount, setAmount] = useState<string>(''); // Amount of tokens to transfer
+    const [error, setError] = useState<string>(''); // Error message
+    const [connected, setConnected] = useState<boolean>(false); // Indicates whether MetaMask is connected
+
+    // Effect hook to check MetaMask installation
+    useEffect(() => {
+        if (window.ethereum) {
+            const web3Instance = new Web3(window.ethereum);
+            setWeb3(web3Instance);
+        } else {
+            setError('MetaMask not detected. Please install MetaMask to continue.');
+        }
+    }, []);
+
+    // Function to connect to MetaMask
     const connectToMetaMask = async () => {
         try {
-            if (typeof window !== 'undefined' && typeof (window as any).ethereum !== 'undefined') {
-                const web3Instance = new Web3((window as any).ethereum);
-                setWeb3(web3Instance);
-
-                // Request account access if needed
-                await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
-
-                const accounts = await web3Instance.eth.getAccounts();
-                setAccount(accounts[0] || 'No accounts available');
-
-                const networkId = await web3Instance.eth.net.getId();
-                const deployedNetwork = (AirdropToken as any).networks[networkId.toString()];
-                if (deployedNetwork) {
-                    const instance = new web3Instance.eth.Contract(
-                        (AirdropToken as any).abi,
-                        deployedNetwork.address,
-                    );
-                    setContract(instance);
-                    setConnected(true); // Set connected to true after successful connection
-                } else {
-                    console.log('Contract not deployed on the current network');
-                }
-            } else {
-                console.log('Please install MetaMask or enable it in your browser');
+            await window.ethereum?.request({ method: 'eth_requestAccounts' });
+            const accounts = await web3?.eth.getAccounts();
+            if (accounts) {
+                setAccounts(accounts);
+                setConnected(true);
             }
         } catch (error) {
-            console.error('Error connecting to MetaMask:', error);
+            setError('Failed to connect to MetaMask. Please try again.');
         }
     };
 
-    // Function to handle the airdrop
-    const handleAirdrop = async () => {
+    // Function to handle token transfer
+    const handleTokenTransfer = async () => {
         try {
-            if (!contract) {
-                console.log('Contract not initialized');
+            // Validate recipient address
+            if (!recipientAddress.startsWith('0x') || recipientAddress.length !== 42) {
+                setError('Invalid recipient address');
                 return;
             }
 
-            if (!recipients || !amount) {
-                console.log('Recipient address or amount is missing');
+            // Check if web3 is not null before proceeding
+            if (!web3) {
+                setError('Web3 instance not available');
                 return;
             }
 
-            console.log('Transaction in progress...');
-            await contract.methods.transferTokens(recipients.split(','), amount).send({ from: account });
-            console.log('Airdrop successful');
+            const tokenContract = new web3.eth.Contract(AirdropToken.abi);
+            const tx = await tokenContract.methods.transfer(recipientAddress, amount).send({ from: accounts[0] });
+
+            if (tx.status) {
+                alert('Token transfer successful!');
+            } else {
+                setError('Failed to transfer tokens. Please try again.');
+            }
         } catch (error) {
-            console.error('Airdrop failed:', error);
+            setError('Failed to transfer tokens. Please try again.');
         }
     };
 
+
+    // Render JSX
     return (
         <div className="h-screen flex justify-center items-center bg-black text-white">
             <main className="flex flex-col items-center gap-5">
-                <div>
-                    {connected ? (
-                        <button className="bg-green-500 text-white font-bold py-2 px-4 rounded cursor-not-allowed" disabled>
-                            Connected
-                        </button>
-                    ) : (
+                {error && <div className="error">{error}</div>}
+                {!connected ? (
+                    <div>
                         <button onClick={connectToMetaMask} className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
                             Connect Wallet
                         </button>
-                    )}
-                </div>
-                <p className="text-red-500">Connect Your Wallet</p>
-                <div className="flex gap-5">
-                    <input type="text" placeholder="Enter recipient address" className="p-2 border-none rounded-md focus:outline-cyan-300 text-black" value={recipients} onChange={(e) => setRecipients(e.target.value)} />
-                    <input type="text" placeholder="Enter amount" className="p-2 border-none rounded-md focus:outline-cyan-300 text-black" value={amount} onChange={(e) => setAmount(e.target.value)} />
-                    <button onClick={handleAirdrop} disabled={!contract || !recipients || !amount || !connected} className={`border-cyan-700 border-2 rounded-md px-3 py-1 ${(!contract || !recipients || !amount || !connected) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-cyan-700 hover:border-cyan-900 text-cyan-700 hover:text-white'}`}>
-                        Transfer
-                    </button>
-                </div>
+                        <p className="text-red-500 mt-2">Connect Your Wallet</p>
+                    </div>
+                ) : (
+                    <div>
+                        <button className="bg-green-500 text-white font-bold py-2 px-4 rounded cursor-not-allowed" disabled>
+                            Connected
+                        </button>
+                        <p className="text-green-500 mt-2">Connected Account: {accounts.length > 0 ? accounts[0] : ''}</p>
+
+                    </div>
+                )}
+                {connected && (
+                    <div className="flex flex-col items-center">
+                        <input
+                            type="text"
+                            placeholder="Recipient Address"
+                            value={recipientAddress}
+                            onChange={(e) => setRecipientAddress(e.target.value)}
+                            className="mt-2 px-3 py-2 border border-gray-400 rounded w-64 bg-white text-gray-800 focus:outline-none focus:bg-blue-400"
+
+                        />
+                        <input
+                            type="text"
+                            placeholder="Amount"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            className="mt-2 px-3 py-2 border border-gray-400 rounded w-64 bg-white text-gray-800 focus:outline-none focus:bg-blue-400"
+                        />
+                        <button onClick={handleTokenTransfer} className="mt-2 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                            Transfer Tokens
+                        </button>
+                    </div>
+                )}
             </main>
         </div>
     );
-}
+};
 
-export default Page;
+// Export YourComponent
+export default App;
